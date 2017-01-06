@@ -2,6 +2,7 @@ package com.czy.zydownloading;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.animation.TimeInterpolator;
 import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
 import android.content.Context;
@@ -14,6 +15,7 @@ import android.os.Build;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.View;
+import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
 
 /**
@@ -24,8 +26,9 @@ import android.view.animation.LinearInterpolator;
 @TargetApi(Build.VERSION_CODES.HONEYCOMB)
 public class ZYDownloading extends View {
     private static final String TAG = "CoolDownloading";
+    private static final int ANIM_DURATION_TIMES = 5;
     private int vWidth, vHeight;
-    private Point center, lineCenter;
+    private Point center, lineCenter, lineCenterCopy;
     private final double sin45 = Math.sin(45 * 2 * Math.PI / 360);
     private Context context;
     private Paint outPaint, innerPaint, circlePaint;
@@ -34,8 +37,8 @@ public class ZYDownloading extends View {
     //贝塞尔曲线控制点坐标与中心点坐标的差值 与 圆框半径的比率
     private float ctrlWRate = 1.35f, ctrlHRate = 1;
     //左右两段三阶贝塞尔曲线的path
-    private Path pathLeft, pathRight, linePath, cornerRectPath, progressRectPath;
-    private ValueAnimator scaleAnim, circleToLinePathAnim, lineJumpAnim, arrowToRectAnim, mergeAnim;
+    private Path pathLeft, pathRight, linePath, linePathCopy, cornerRectPath, progressRectPath;
+    private ValueAnimator scaleAnim, circleToLinePathAnim, lineJumpAnim, lineJumpAnimCopy, arrowToRectAnim, mergeAnim;
     private final int SCALE = 0X1229, CIRCLE_TO_LINE = 0X1331, LINE_JUMP = 0X1332, SHOW_LOADINGBAR = 0X1333;
     private int nowDrawState = SCALE;
     //直线是否弹跳到最高点
@@ -54,7 +57,6 @@ public class ZYDownloading extends View {
 
     //是否正在下载
     private boolean isDownloading = false;
-
 
     public ZYDownloading(Context context) {
         super(context);
@@ -88,6 +90,7 @@ public class ZYDownloading extends View {
         pathLeft = new Path();
         pathRight = new Path();
         linePath = new Path();
+        linePathCopy = new Path();
         cornerRectPath = new Path();
         progressRectPath = new Path();
 
@@ -96,7 +99,7 @@ public class ZYDownloading extends View {
 
         scaleAnim = ValueAnimator.ofFloat(1, 0.85f, 1);
         scaleAnim.setInterpolator(linearInterpolator);
-        scaleAnim.setDuration(350);
+        scaleAnim.setDuration(350 * ANIM_DURATION_TIMES);
         scaleAnim.addUpdateListener(scaleListener);
         scaleAnim.addListener(new AnimatorListenerAdapter() {
             @Override
@@ -110,7 +113,7 @@ public class ZYDownloading extends View {
 
         circleToLinePathAnim = ValueAnimator.ofFloat(0, 1);
         circleToLinePathAnim.setInterpolator(linearInterpolator);
-        circleToLinePathAnim.setDuration(200);
+        circleToLinePathAnim.setDuration(200 * ANIM_DURATION_TIMES);
         circleToLinePathAnim.addUpdateListener(C2LUpdateListener);
         circleToLinePathAnim.addListener(new AnimatorListenerAdapter() {
             @Override
@@ -119,17 +122,23 @@ public class ZYDownloading extends View {
                 //开始上下弹的动画
                 lineJumpAnim.start();
 
+                lineJumpAnimCopy.start();
             }
         });
 
         lineJumpAnim = ValueAnimator.ofFloat(0, -2.5f, 0.5f, -1f, 0.2f, 0);
         lineJumpAnim.setInterpolator(linearInterpolator);
-        lineJumpAnim.setDuration(300);
+        lineJumpAnim.setDuration(300 * ANIM_DURATION_TIMES);
         lineJumpAnim.addUpdateListener(LJumpUpdateListener);
+
+        lineJumpAnimCopy = ValueAnimator.ofFloat(0, -2.5f, 0.5f, -1f, 0.2f, 0);
+        lineJumpAnimCopy.setInterpolator(new AccelerateDecelerateInterpolator());
+        lineJumpAnimCopy.setDuration(300 * ANIM_DURATION_TIMES);
+        lineJumpAnimCopy.addUpdateListener(LJumpUpdateListenerCopy);
 
         arrowToRectAnim = ValueAnimator.ofFloat(0, -0.5f, 1);
         arrowToRectAnim.setInterpolator(linearInterpolator);
-        arrowToRectAnim.setDuration(350);//350
+        arrowToRectAnim.setDuration(350 * ANIM_DURATION_TIMES);//350
         arrowToRectAnim.addUpdateListener(arrowToCircleAnimListener);
         arrowToRectAnim.addListener(new AnimatorListenerAdapter() {
             @Override
@@ -144,7 +153,7 @@ public class ZYDownloading extends View {
         //圆滑方框与线条融合的动画
         mergeAnim = ValueAnimator.ofFloat(0, 1);
         mergeAnim.setInterpolator(linearInterpolator);
-        mergeAnim.setDuration(350);
+        mergeAnim.setDuration(350 * ANIM_DURATION_TIMES);
         mergeAnim.addUpdateListener(mergeAnimListener);
         mergeAnim.addListener(new AnimatorListenerAdapter() {
             @Override
@@ -203,6 +212,14 @@ public class ZYDownloading extends View {
         linePath.moveTo(stopPL.x, stopPL.y);
         linePath.quadTo(lineCenter.x, lineCenter.y, stopPR.x, stopPR.y);
         canvas.drawPath(linePath, outPaint);
+
+        int color = outPaint.getColor();
+        outPaint.setColor(Color.RED);
+        linePathCopy.reset();
+        linePathCopy.moveTo(stopPL.x, stopPL.y);
+        linePathCopy.quadTo(lineCenterCopy.x, lineCenterCopy.y, stopPR.x, stopPR.y);
+        canvas.drawPath(linePathCopy, outPaint);
+        outPaint.setColor(color);
     }
 
     /**
@@ -249,6 +266,7 @@ public class ZYDownloading extends View {
         circleRadius = base * 0.8f / 8f;
         //初始化直线的中心点
         lineCenter = new Point(center.x, center.y);
+        lineCenterCopy = new Point(center.x, center.y);
 
         //圆的外切正方形，两段贝塞尔曲线，控制点分别为正方形的四个顶点
         //左下角顶点 ctrlL1 左上角顶点 ctrlL2; 右下角顶点 ctrlR1 右上角顶点 ctrlR2
@@ -338,6 +356,16 @@ public class ZYDownloading extends View {
                 jumpHightY = lineCenter.y;
                 distance = center.y - jumpHightY;
             }
+            invalidate();
+        }
+    };
+
+    private ValueAnimator.AnimatorUpdateListener LJumpUpdateListenerCopy = new ValueAnimator.AnimatorUpdateListener() {
+
+        @Override
+        public void onAnimationUpdate(ValueAnimator animation) {
+            float value = (float) animation.getAnimatedValue();
+            lineCenterCopy.y = center.y + value * circleRadius;
             invalidate();
         }
     };
